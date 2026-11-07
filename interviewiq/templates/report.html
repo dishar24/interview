@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block title %}Interview Report - InterviewIQ AI{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-10">
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-success text-white">
+                <h3 class="mb-0">Interview Report</h3>
+            </div>
+            <div class="card-body">
+                <div class="row mb-4">
+                    <div class="col-md-6">
+                        <p><strong>Type:</strong> {{ interview_types.get(r.category, r.category) }}</p>
+                        <p><strong>Role:</strong> {{ r.role }}</p>
+                        <p><strong>Difficulty:</strong> {{ r.difficulty.title() }}</p>
+                        <p><strong>Date:</strong> {{ r.started_at[:10] }}</p>
+                    </div>
+                    <div class="col-md-6 text-end">
+                        <h2 class="text-success mb-3">Overall Score</h2>
+                        <h1 class="display-3">{{ "%.1f"|format(r.overall_score) }}</h1>
+                    </div>
+                </div>
+
+                <h4 class="mb-3">Performance by Category</h4>
+                <div class="row text-center mb-4">
+                    <div class="col-md-3">
+                        <div class="card">
+                            <div class="card-body">
+                                <h6>Relevance</h6>
+                                <h4 class="text-primary">{{ "%.1f"|format(r.avg_relevance) }}</h4>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card">
+                            <div class="card-body">
+                                <h6>Technical</h6>
+                                <h4 class="text-info">{{ "%.1f"|format(r.avg_technical) }}</h4>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card">
+                            <div class="card-body">
+                                <h6>Completeness</h6>
+                                <h4 class="text-warning">{{ "%.1f"|format(r.avg_completeness) }}</h4>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card">
+                            <div class="card-body">
+                                <h6>Clarity</h6>
+                                <h4 class="text-success">{{ "%.1f"|format(r.avg_clarity) }}</h4>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <h4 class="mb-3">Question-by-Question Analysis</h4>
+                {% for item in r.item_list %}
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span><strong>Question {{ loop.index }}:</strong> {{ item.question_text }}</span>
+                            <span class="badge bg-primary">Score: {{ "%.1f"|format(item.score * 10) }}</span>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <p><strong>Your Answer:</strong></p>
+                        <p class="text-muted">{{ item.transcript or "(No answer provided)" }}</p>
+                        
+                        <div class="row mt-3">
+                            <div class="col-md-6">
+                                <p><strong>Strengths:</strong></p>
+                                <ul>
+                                    {% for strength in item.strengths %}
+                                        <li class="text-success">{{ strength }}</li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                            <div class="col-md-6">
+                                <p><strong>Areas for Improvement:</strong></p>
+                                <ul>
+                                    {% for improvement in item.improvements %}
+                                        <li class="text-warning">{{ improvement }}</li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        </div>
+                        
+                        <p class="mt-2"><strong>Feedback:</strong> {{ item.feedback }}</p>
+                        {% if item.suggestion %}
+                            <p><strong>Suggestion:</strong> {{ item.suggestion }}</p>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+
+                <div class="text-center mt-4">
+                    <a href="{{ url_for('interview.dashboard') }}" class="btn btn-primary">Back to Dashboard</a>
+                    <a href="{{ url_for('interview.history') }}" class="btn btn-outline-secondary">View History</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

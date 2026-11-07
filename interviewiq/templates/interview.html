@@ -1,0 +1,397 @@
+{% extends "base.html" %}
+
+{% block title %}Interview Room - InterviewIQ AI{% endblock %}
+
+{% block extra_head %}
+<style>
+    .interview-container {
+        max-width: 900px;
+        margin: 0 auto;
+    }
+    .question-card {
+        min-height: 200px;
+    }
+    .btn-record {
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        font-size: 24px;
+        margin: 20px auto;
+        display: block;
+    }
+    .recording {
+        animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+    }
+    .progress-indicator {
+        font-size: 18px;
+        font-weight: bold;
+    }
+    #transcript-editor {
+        width: 100%;
+        min-height: 120px;
+        padding: 10px;
+        border: 1px solid #ced4da;
+        border-radius: 4px;
+        font-size: 16px;
+        resize: vertical;
+    }
+    .tts-toggle {
+        margin-bottom: 20px;
+        padding: 15px;
+        background-color: #f8f9fa;
+        border-radius: 8px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="interview-container">
+    <div class="card shadow">
+        <div class="card-header bg-primary text-white">
+            <h4 class="mb-0">
+                {{ interview_types.get(interview.category, interview.category) }} - {{ interview.role }}
+            </h4>
+            <small>Difficulty: {{ interview.difficulty.title() }}</small>
+        </div>
+        <div class="card-body">
+            <!-- Text-to-Speech Toggle -->
+            <div class="tts-toggle">
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="tts-enabled" checked>
+                    <label class="form-check-label" for="tts-enabled">
+                        <strong>🔊 Read questions aloud</strong>
+                        <small class="text-muted d-block">Enable text-to-speech for interview questions</small>
+                    </label>
+                </div>
+            </div>
+
+            <div class="progress-indicator text-center mb-4">
+                <span id="progress-text">Loading question...</span>
+            </div>
+
+            <div id="question-container" class="question-card mb-4">
+                <div class="text-center py-5">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+
+            <div id="controls-container" class="text-center" style="display: none;">
+                <button id="record-btn" class="btn btn-danger btn-record" title="Click to record answer">
+                    🎤
+                </button>
+                <p class="text-muted">
+                    <span id="recording-status">Click the microphone to record your answer</span>
+                    <span id="timer" style="display: none;"> (00:00)</span>
+                </p>
+                <div id="transcript-container" style="display: none;" class="mt-3">
+                    <h5>Your Answer:</h5>
+                    <small class="text-muted">Review and edit the transcript before submitting</small>
+                    <textarea id="transcript-editor" class="form-control mt-2" placeholder="Your answer will appear here..."></textarea>
+                    <button id="submit-btn" class="btn btn-primary mt-3">Submit Answer</button>
+                </div>
+            </div>
+
+            <div id="evaluation-container" style="display: none;" class="mt-4">
+                <h5>Evaluation Results</h5>
+                <div class="card">
+                    <div class="card-body">
+                        <div class="row text-center mb-3">
+                            <div class="col-3">
+                                <strong>Score</strong><br>
+                                <span id="eval-score" class="text-primary fs-4"></span>
+                            </div>
+                            <div class="col-3">
+                                <strong>Relevance</strong><br>
+                                <span id="eval-relevance"></span>
+                            </div>
+                            <div class="col-3">
+                                <strong>Technical</strong><br>
+                                <span id="eval-technical"></span>
+                            </div>
+                            <div class="col-3">
+                                <strong>Clarity</strong><br>
+                                <span id="eval-clarity"></span>
+                            </div>
+                        </div>
+                        <div id="eval-feedback"></div>
+                        <button id="next-btn" class="btn btn-success mt-3">Next Question</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const INTERVIEW_ID = {{ interview.id }};
+const CSRF_TOKEN = "{{ csrf_token() }}";
+let currentQuestion = null;
+let mediaRecorder = null;
+let audioChunks = [];
+let recordingStartTime = null;
+let timerInterval = null;
+
+// Text-to-Speech functionality
+function speakQuestion(text) {
+    // Check if TTS is enabled
+    if (!document.getElementById('tts-enabled').checked) {
+        return;
+    }
+    
+    // Check if Speech Synthesis is supported
+    if (!('speechSynthesis' in window)) {
+        console.warn('Text-to-speech not supported in this browser');
+        return;
+    }
+    
+    // Cancel any ongoing speech
+    window.speechSynthesis.cancel();
+    
+    // Create utterance and speak
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 0.9;  // Slightly slower for clarity
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0;
+    
+    window.speechSynthesis.speak(utterance);
+}
+
+async function loadNextQuestion() {
+    try {
+        const resp = await fetch(`/api/interview/${INTERVIEW_ID}/next`);
+        const data = await resp.json();
+        
+        if (data.done) {
+            window.location.href = data.report_url;
+            return;
+        }
+        
+        currentQuestion = data;
+        document.getElementById('progress-text').textContent = 
+            `Question ${data.position} of ${data.total}`;
+        
+        document.getElementById('question-container').innerHTML = `
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Question ${data.position}</h5>
+                    <p class="card-text fs-5">${data.question.text}</p>
+                    <div class="mt-2">
+                        <span class="badge bg-info">${data.question.subject}</span>
+                        <span class="badge bg-secondary">${data.question.difficulty}</span>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Read the question aloud if TTS is enabled
+        speakQuestion(data.question.text);
+        
+        document.getElementById('controls-container').style.display = 'block';
+        document.getElementById('transcript-container').style.display = 'none';
+        document.getElementById('evaluation-container').style.display = 'none';
+        
+    } catch (error) {
+        alert('Failed to load question: ' + error.message);
+    }
+}
+
+async function startRecording() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+        
+        mediaRecorder.ondataavailable = (event) => {
+            audioChunks.push(event.data);
+        };
+        
+        mediaRecorder.onstop = async () => {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            await transcribeAudio(audioBlob);
+            stream.getTracks().forEach(track => track.stop());
+        };
+        
+        mediaRecorder.start();
+        recordingStartTime = Date.now();
+        
+        document.getElementById('record-btn').classList.add('recording');
+        document.getElementById('record-btn').classList.remove('btn-danger');
+        document.getElementById('record-btn').classList.add('btn-warning');
+        document.getElementById('recording-status').textContent = 'Recording... Click again to stop';
+        document.getElementById('timer').style.display = 'inline';
+        
+        timerInterval = setInterval(updateTimer, 1000);
+        
+    } catch (error) {
+        alert('Failed to access microphone: ' + error.message);
+    }
+}
+
+function stopRecording() {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+        clearInterval(timerInterval);
+        document.getElementById('record-btn').classList.remove('recording');
+        document.getElementById('recording-status').textContent = 'Transcribing...';
+        document.getElementById('timer').style.display = 'none';
+    }
+}
+
+function updateTimer() {
+    const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
+    const mins = Math.floor(elapsed / 60).toString().padStart(2, '0');
+    const secs = (elapsed % 60).toString().padStart(2, '0');
+    document.getElementById('timer').textContent = ` (${mins}:${secs})`;
+}
+
+async function transcribeAudio(audioBlob) {
+    const formData = new FormData();
+    formData.append('audio', audioBlob, 'recording.webm');
+    formData.append('csrf_token', CSRF_TOKEN);
+    
+    try {
+        const resp = await fetch('/api/transcribe', {
+            method: 'POST',
+            body: formData,
+            headers: { 'X-CSRF-Token': CSRF_TOKEN }
+        });
+        
+        const data = await resp.json();
+        
+        if (data.error) {
+            alert('Transcription failed: ' + data.error);
+            resetRecordButton();
+            return;
+        }
+        
+        // Set transcript in the editable textarea
+        document.getElementById('transcript-editor').value = data.text;
+        document.getElementById('transcript-container').style.display = 'block';
+        document.getElementById('record-btn').style.display = 'none';
+        document.getElementById('recording-status').textContent = 'Transcription complete - Review and edit your answer';
+        
+    } catch (error) {
+        alert('Failed to transcribe audio: ' + error.message);
+        resetRecordButton();
+    }
+}
+
+function resetRecordButton() {
+    document.getElementById('record-btn').classList.remove('recording', 'btn-warning');
+    document.getElementById('record-btn').classList.add('btn-danger');
+    document.getElementById('recording-status').textContent = 'Click the microphone to record your answer';
+}
+
+async function submitAnswer() {
+    // Get the edited transcript from the textarea
+    const transcript = document.getElementById('transcript-editor').value.trim();
+    
+    if (!transcript) {
+        alert('Please provide an answer before submitting.');
+        return;
+    }
+    
+    const duration = recordingStartTime ? Math.floor((Date.now() - recordingStartTime) / 1000) : 0;
+    
+    try {
+        const resp = await fetch(`/api/interview/${INTERVIEW_ID}/answer`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': CSRF_TOKEN
+            },
+            body: JSON.stringify({ transcript, duration_sec: duration })
+        });
+        
+        const data = await resp.json();
+        
+        if (data.error) {
+            alert('Failed to submit: ' + data.error);
+            return;
+        }
+        
+        showEvaluation(data.evaluation);
+        
+    } catch (error) {
+        alert('Failed to submit answer: ' + error.message);
+    }
+}
+
+function showEvaluation(eval) {
+    document.getElementById('eval-score').textContent = eval.score.toFixed(1);
+    document.getElementById('eval-relevance').textContent = eval.relevance;
+    document.getElementById('eval-technical').textContent = eval.technical_correctness;
+    document.getElementById('eval-clarity').textContent = eval.clarity;
+    document.getElementById('eval-feedback').innerHTML = `<p class="mt-3"><strong>Feedback:</strong> ${eval.feedback}</p>`;
+    
+    document.getElementById('evaluation-container').style.display = 'block';
+    document.getElementById('transcript-container').style.display = 'none';
+    
+    // Update button text based on whether this is the last question
+    const nextBtn = document.getElementById('next-btn');
+    if (currentQuestion && currentQuestion.position >= currentQuestion.total) {
+        nextBtn.textContent = 'View Report';
+        nextBtn.classList.remove('btn-success');
+        nextBtn.classList.add('btn-primary');
+    } else {
+        nextBtn.textContent = 'Next Question';
+        nextBtn.classList.remove('btn-primary');
+        nextBtn.classList.add('btn-success');
+    }
+}
+
+// Event Listeners
+document.getElementById('record-btn').addEventListener('click', () => {
+    if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+        startRecording();
+    } else {
+        stopRecording();
+    }
+});
+
+document.getElementById('submit-btn').addEventListener('click', submitAnswer);
+
+document.getElementById('next-btn').addEventListener('click', () => {
+    // Check if this was the last question
+    if (currentQuestion && currentQuestion.position >= currentQuestion.total) {
+        // This was the last question - check completion and go to report
+        fetch(`/api/interview/${INTERVIEW_ID}/next`)
+            .then(resp => resp.get_json())
+            .then(data => {
+                if (data.done && data.report_url) {
+                    window.location.href = data.report_url;
+                } else {
+                    // Shouldn't happen, but handle gracefully
+                    alert('Interview complete');
+                    window.location.href = `/interview/${INTERVIEW_ID}/report`;
+                }
+            })
+            .catch(error => {
+                // If API fails, try direct navigation
+                window.location.href = `/interview/${INTERVIEW_ID}/report`;
+            });
+    } else {
+        // More questions remain - load next
+        document.getElementById('record-btn').style.display = 'block';
+        resetRecordButton();
+        loadNextQuestion();
+    }
+});
+
+// TTS toggle listener - stop speech if disabled
+document.getElementById('tts-enabled').addEventListener('change', (e) => {
+    if (!e.target.checked && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+    }
+});
+
+// Load first question
+loadNextQuestion();
+</script>
+{% endblock %}

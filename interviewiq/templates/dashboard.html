@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - InterviewIQ AI{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-md-12">
+        <h2 class="mb-4">Welcome, {{ g.user.name }}!</h2>
+        
+        <!-- Stats Cards -->
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <h5 class="card-title">Interviews Completed</h5>
+                        <h2 class="text-primary">{{ stats.count }}</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <h5 class="card-title">Best Score</h5>
+                        <h2 class="text-success">{{ "%.1f"|format(stats.best) if stats.best else "—" }}</h2>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card text-center">
+                    <div class="card-body">
+                        <h5 class="card-title">Latest Score</h5>
+                        <h2 class="text-info">{{ "%.1f"|format(stats.latest) if stats.latest else "—" }}</h2>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {% if in_progress %}
+        <div class="alert alert-info">
+            <h5>Resume Interview</h5>
+            <p>You have an interview in progress.</p>
+            <a href="{{ url_for('interview.room', interview_id=in_progress.id) }}" class="btn btn-info btn-sm">Continue</a>
+        </div>
+        {% endif %}
+
+        <!-- Start New Interview -->
+        <div class="card shadow-sm mb-4">
+            <div class="card-body">
+                <h4 class="card-title mb-4">Start New Interview</h4>
+                <form method="POST" action="{{ url_for('interview.start') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Interview Type</label>
+                            <select name="interview_type" id="interview_type" class="form-select" required>
+                                {% for key, label in interview_types.items() %}
+                                    <option value="{{ key }}">{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Role</label>
+                            <select name="role" class="form-select" required>
+                                {% for role in roles %}
+                                    <option value="{{ role }}">{{ role }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">Difficulty</label>
+                            <select name="difficulty" class="form-select" required>
+                                {% for diff in difficulties %}
+                                    <option value="{{ diff }}" {% if diff == 'intermediate' %}selected{% endif %}>{{ diff.title() }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Number of Questions</label>
+                            <input type="number" name="num_questions" class="form-control" value="{{ default_q }}" min="{{ min_q }}" max="{{ max_q }}" required>
+                        </div>
+                    </div>
+
+                    <div class="mb-3" id="skills-section">
+                        <label class="form-label">Skills (select at least one)</label>
+                        <div class="row">
+                            {% for subject in subjects %}
+                                <div class="col-md-3 col-sm-6">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" name="skills" value="{{ subject }}" id="skill_{{ loop.index }}">
+                                        <label class="form-check-label" for="skill_{{ loop.index }}">{{ subject }}</label>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary btn-lg">Start Interview</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Recent Interviews -->
+        {% if recent %}
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h4 class="card-title mb-3">Recent Interviews</h4>
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Type</th>
+                                <th>Role</th>
+                                <th>Difficulty</th>
+                                <th>Status</th>
+                                <th>Score</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for h in recent %}
+                            <tr>
+                                <td>{{ h.started_at[:10] }}</td>
+                                <td>{{ interview_types.get(h.category, h.category) }}</td>
+                                <td>{{ h.role }}</td>
+                                <td><span class="badge bg-secondary">{{ h.difficulty }}</span></td>
+                                <td>
+                                    {% if h.status == 'completed' %}
+                                        <span class="badge bg-success">Completed</span>
+                                    {% else %}
+                                        <span class="badge bg-warning">In Progress</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ "%.1f"|format(h.overall_score) if h.overall_score else "—" }}</td>
+                                <td>
+                                    {% if h.status == 'completed' %}
+                                        <a href="{{ url_for('interview.report', interview_id=h.id) }}" class="btn btn-sm btn-outline-primary">View Report</a>
+                                    {% else %}
+                                        <a href="{{ url_for('interview.room', interview_id=h.id) }}" class="btn btn-sm btn-outline-info">Continue</a>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <a href="{{ url_for('interview.history') }}" class="btn btn-outline-secondary btn-sm">View All History</a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+    // Hide skills section for HR interviews
+    document.getElementById('interview_type').addEventListener('change', function() {
+        const skillsSection = document.getElementById('skills-section');
+        if (this.value === 'hr') {
+            skillsSection.style.display = 'none';
+        } else {
+            skillsSection.style.display = 'block';
+        }
+    });
+</script>
+{% endblock %}
